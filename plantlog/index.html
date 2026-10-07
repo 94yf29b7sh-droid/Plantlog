@@ -68,7 +68,9 @@ main{max-width:640px;margin:0 auto;padding:4px 16px 48px}
 .days b{display:block;font-family:var(--num);font-size:30px;line-height:1;font-weight:600;color:var(--c)}
 .days b.word{font-size:21px;line-height:30px}
 .days span{display:block;font-size:12px;color:var(--muted);margin-top:4px}
-.quick{flex:none;align-self:center;border:0;background:var(--water-soft);color:var(--water);font-weight:600;border-radius:999px;padding:9px 0;width:64px;font-size:15px}
+.btns{flex:none;align-self:center;display:flex;flex-direction:column;gap:6px;padding:10px 0}
+.quick{border:0;background:var(--water-soft);color:var(--water);font-weight:600;border-radius:999px;padding:6px 0;width:60px;font-size:14px}
+.quick.fert{background:transparent;color:var(--ok);box-shadow:inset 0 0 0 1px var(--line)}
 .quick:active{transform:scale(.95)}
 .empty{color:var(--muted);font-size:15px;padding:16px;background:var(--surface);border-radius:14px;margin:0}
 .banner{display:block;width:100%;margin-top:24px;border:1px dashed var(--soon);background:transparent;color:var(--soon);border-radius:12px;padding:12px;font-size:14px}
@@ -108,6 +110,7 @@ select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
 .logs li + li{border-top:1px solid var(--line)}
 .logs time{color:var(--muted);font-variant-numeric:tabular-nums;min-width:96px}
 .logs li span{flex:1}
+.logs small{color:var(--muted);font-size:13px;margin-left:6px}
 .logs .x{border:0;background:none;color:var(--late);font-size:14px;padding:4px 6px}
 .btn{display:inline-flex;justify-content:center;align-items:center;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 16px;font-size:16px;font-weight:600;cursor:pointer}
 .btn.small{padding:7px 14px;font-size:15px}
@@ -152,17 +155,19 @@ select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
 const KEY = 'plantlog.v1';
 const FILTER_KEY = 'plantlog.filter';
 const DAY = 864e5;
-const ACT = { water:'澆水', change:'換水', mist:'泡水', fert:'施肥', prune:'整理', check:'檢查土壤' };
+const ACT = { water:'澆水', change:'換水', mist:'噴水', fert:'施肥', prune:'整理', check:'檢查土壤' };
 const KIND = { soil:'土耕', water:'水耕', air:'空氣鳳梨' };
 const LOC = { in:'室內', out:'室外' };
 const SEED = [
   ['in','龜背芋',1,'soil',7], ['in','黃金葛',3,'water',10], ['in','粗肋草',1,'soil',7],
-  ['in','Birkin',1,'soil',7], ['in','孔雀竹芋',1,'soil',5], ['in','空氣鳳梨',1,'air',7],
+  ['in','Birkin',1,'soil',7], ['in','孔雀竹芋',1,'soil',5], ['in','空氣鳳梨',1,'air',1],
   ['in','白油畫竹芋',1,'soil',5],
   ['out','粗肋草',3,'soil',4], ['out','黃金葛',3,'soil',3], ['out','黃金葛',1,'water',7],
   ['out','防蚊樹',1,'soil',3], ['out','白斑龜背芋',1,'soil',5]
 ];
 
+const FERT = { water:'易施肥', soil:'花寶2號（1:1000）', air:'' };
+const defaultFert = kind => FERT[kind] ?? '';
 const $ = s => document.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -180,14 +185,25 @@ const Store = {
 };
 function seed() {
   return {
-    version: 1,
-    plants: SEED.map(([loc, name, qty, kind, interval]) => ({ id: uid(), name, loc, qty, kind, interval, note: '' })),
+    version: 2,
+    plants: SEED.map(([loc, name, qty, kind, interval]) => ({ id: uid(), name, loc, qty, kind, interval, fert: defaultFert(kind), note: '' })),
     logs: [],
     lastBackup: null
   };
 }
 let S = Store.load();
 if (!S || !Array.isArray(S.plants)) { S = seed(); Store.save(S); }
+// 舊資料升級：補上肥料、空氣鳳梨改成每天噴水（使用者改過的天數不動）
+function migrate(st) {
+  if ((st.version || 1) >= 2) return false;
+  for (const p of st.plants) {
+    if (p.fert == null) p.fert = defaultFert(p.kind);
+    if (p.kind === 'air' && p.interval === 7) p.interval = 1;
+  }
+  st.version = 2;
+  return true;
+}
+if (migrate(S)) Store.save(S);
 let filter = 'all';
 try { filter = localStorage.getItem(FILTER_KEY) || 'all'; } catch (e) {}
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -217,6 +233,7 @@ function status(p) {
   return { st: d >= p.interval ? 'late' : r >= 0.7 ? 'soon' : 'ok', d, score:r };
 }
 const pad = n => String(n).padStart(2, '0');
+const every = n => n === 1 ? '每天' : `約每 ${n} 天`;
 function fmt(ts) {
   const d = new Date(ts), now = new Date();
   const md = `${d.getMonth()+1}/${d.getDate()}`;
@@ -260,25 +277,32 @@ function rowHTML({ p, st, d }) {
   const big = d == null ? '—' : d === 0 ? '今天' : d;
   const small = d == null ? '還沒紀錄' : d === 0 ? `已${ACT[a]}` : `天前${ACT[a]}`;
   const parts = p.name === KIND[p.kind] ? [] : [KIND[p.kind]];
-  if (p.interval) parts.push(`約每 ${p.interval} 天`);
+  if (p.interval) parts.push(every(p.interval));
   let meta = parts.join('，');
   if (p.kind === 'soil') {
     const c = last(p.id, 'check'), w = last(p.id, 'water');
     if (c != null && (w == null || c > w)) meta += `，${rel(c)}檢查過`;
   }
+  const f = last(p.id, 'fert');
+  if (f != null) meta += `${meta ? '，' : ''}${rel(f)}施肥`;
   return `<div class="row s-${st}">
     <div class="gauge"><i style="height:${Math.round(fill * 100)}%"></i></div>
     <button type="button" class="info" data-open="${p.id}">
       <span class="txt"><span class="name">${esc(p.name)}${p.qty > 1 ? `<span class="qty">×${p.qty}</span>` : ''}</span><span class="meta">${meta}</span></span>
       <span class="days"><b class="${typeof big === 'string' ? 'word' : ''}">${big}</b><span>${small}</span></span>
     </button>
-    <button type="button" class="quick" data-log="${p.id}" data-act="${a}">${ACT[a]}</button>
+    <div class="btns">
+      <button type="button" class="quick" data-log="${p.id}" data-act="${a}">${ACT[a]}</button>
+      <button type="button" class="quick fert" data-log="${p.id}" data-act="fert">施肥</button>
+    </div>
   </div>`;
 }
 
 /* ---------- 紀錄 ---------- */
 function addLog(pid, act, ts) {
   const l = { id: uid(), pid, act, ts };
+  const p = plantById(pid);
+  if (act === 'fert' && p && p.fert) l.memo = p.fert;
   S.logs.push(l);
   Store.save(S);
   return l;
@@ -291,7 +315,7 @@ function logWithUndo(pid, act, ts = Date.now()) {
   const p = plantById(pid); if (!p) return;
   const l = addLog(pid, act, ts);
   refresh();
-  toast(`${p.name} 已${ACT[act]}`, () => { removeLog(l.id); refresh(); });
+  toast(`${p.name} 已${ACT[act]}${l.memo ? `（${l.memo}）` : ''}`, () => { removeLog(l.id); refresh(); });
 }
 
 /* ---------- 底部面板 ---------- */
@@ -319,7 +343,8 @@ function plantSheet(pid) {
   openSheet(`
     <div class="sh-head">
       <div><h3>${esc(p.name)}${p.qty > 1 ? `<span class="qty">×${p.qty}</span>` : ''}</h3>
-      <div class="meta">${LOC[p.loc]}，${KIND[p.kind]}${p.interval ? `，約每 ${p.interval} 天${ACT[primary(p)]}` : ''}</div></div>
+      <div class="meta">${LOC[p.loc]}，${KIND[p.kind]}${p.interval ? `，${every(p.interval)}${ACT[primary(p)]}` : ''}</div>
+      ${p.fert ? `<div class="meta">肥料：${esc(p.fert)}</div>` : ''}</div>
       <button type="button" class="btn small" data-edit="${p.id}">編輯</button>
     </div>
     ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
@@ -333,14 +358,14 @@ function plantSheet(pid) {
       <button type="button" class="btn" data-backfill>補登</button>
     </div>
     <h4>紀錄</h4>
-    ${shown.length ? `<ul class="logs">${shown.map(l => `<li><time>${fmt(l.ts)}</time><span>${ACT[l.act] || l.act}</span><button type="button" class="x" data-del-log="${l.id}">刪除</button></li>`).join('')}</ul>
+    ${shown.length ? `<ul class="logs">${shown.map(l => `<li><time>${fmt(l.ts)}</time><span>${ACT[l.act] || l.act}${l.memo ? `<small>${esc(l.memo)}</small>` : ''}</span><button type="button" class="x" data-del-log="${l.id}">刪除</button></li>`).join('')}</ul>
       ${logs.length > shown.length ? `<p class="meta">另有 ${logs.length - shown.length} 筆較早的紀錄</p>` : ''}`
       : '<p class="meta">還沒有紀錄。照顧完按上面的按鈕記一筆。</p>'}
   `);
 }
 
 function editSheet(pid) {
-  const p = pid ? plantById(pid) : { name:'', loc: filter === 'out' ? 'out' : 'in', qty:1, kind:'soil', interval:7, note:'' };
+  const p = pid ? plantById(pid) : { name:'', loc: filter === 'out' ? 'out' : 'in', qty:1, kind:'soil', interval:7, fert: defaultFert('soil'), note:'' };
   sheet = { mode: 'edit', pid: pid || null };
   const opt = (map, v) => Object.entries(map).map(([k, t]) => `<option value="${k}"${k === v ? ' selected' : ''}>${t}</option>`).join('');
   openSheet(`
@@ -352,7 +377,10 @@ function editSheet(pid) {
         <label>數量<input id="fQty" type="number" min="1" inputmode="numeric" value="${p.qty}"></label>
       </div>
       <label>種法<select id="fKind">${opt(KIND, p.kind)}</select>
-        <small>土耕記「澆水」，水耕記「換水」，空氣鳳梨記「泡水」。</small></label>
+        <small>土耕記「澆水」，水耕記「換水」，空氣鳳梨記「噴水」。</small></label>
+      <label>肥料<input id="fFert" value="${esc(p.fert ?? '')}" list="fertList" maxlength="40" autocomplete="off" placeholder="例如：花寶2號（1:1000）">
+        <small>按「施肥」時會一起記下用了哪種肥料。</small></label>
+      <datalist id="fertList"><option value="易施肥"><option value="花寶2號（1:1000）"></datalist>
       <label>提醒間隔（天）<input id="fInt" type="number" min="0" inputmode="numeric" value="${p.interval || 0}">
         <small>超過這個天數會變紅。填 0 就不提醒。</small></label>
       <label>備註<textarea id="fNote" rows="2" maxlength="200">${esc(p.note)}</textarea></label>
@@ -373,6 +401,7 @@ function savePlant() {
     qty: Math.max(1, parseInt($('#fQty').value, 10) || 1),
     kind: $('#fKind').value,
     interval: Math.max(0, parseInt($('#fInt').value, 10) || 0),
+    fert: $('#fFert').value.trim(),
     note: $('#fNote').value.trim()
   };
   if (sheet.pid) {
@@ -417,7 +446,7 @@ function markBackup() {
   toast('已匯出備份');
 }
 async function exportData() {
-  const json = JSON.stringify({ app:'plantlog', version:1, exportedAt:new Date().toISOString(), plants:S.plants, logs:S.logs }, null, 2);
+  const json = JSON.stringify({ app:'plantlog', version:2, exportedAt:new Date().toISOString(), plants:S.plants, logs:S.logs }, null, 2);
   const name = `plantlog-${ymd()}.json`;
   const file = new File([json], name, { type:'application/json' });
   try {
@@ -441,7 +470,8 @@ async function importData(file) {
     const ok = data && Array.isArray(data.plants) && Array.isArray(data.logs) && data.plants.every(p => p.id && p.name);
     if (!ok) throw new Error('bad');
     if (!confirm(`匯入會取代目前的 ${S.plants.length} 項植物和 ${S.logs.length} 筆紀錄，改成備份裡的 ${data.plants.length} 項植物和 ${data.logs.length} 筆紀錄。確定嗎？`)) return;
-    S = { version:1, plants:data.plants, logs:data.logs, lastBackup: Date.parse(data.exportedAt) || Date.now() };
+    S = { version: data.version || 1, plants:data.plants, logs:data.logs, lastBackup: Date.parse(data.exportedAt) || Date.now() };
+    migrate(S);
     Store.save(S); render(); closeSheet();
     toast(`已匯入 ${data.logs.length} 筆紀錄`);
   } catch (e) {
@@ -488,6 +518,10 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   if (e.target.id === 'importFile' && e.target.files[0]) importData(e.target.files[0]);
+  if (e.target.id === 'fKind') {
+    const f = $('#fFert');
+    if (!f.value.trim() || Object.values(FERT).includes(f.value.trim())) f.value = defaultFert(e.target.value);
+  }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
