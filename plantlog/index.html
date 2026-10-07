@@ -124,12 +124,20 @@ select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
 .form-actions{display:flex;gap:10px;margin-top:20px}
 .form-actions .btn{flex:1}
 .sheet p.meta{margin:6px 0}
+.date{display:flex;justify-content:space-between;align-items:center;gap:12px}
+#syncStat{border:0;background:none;padding:4px 0;font-size:13px;color:var(--muted);display:inline-flex;align-items:center;gap:6px}
+#syncStat::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok)}
+#syncStat.busy::before{background:var(--soon)}
+#syncStat.err{color:var(--late)}
+#syncStat.err::before{background:var(--late)}
+#syncStat[hidden]{display:none}
+.btn:disabled{opacity:.5}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 <header class="top">
-  <div class="date" id="date"></div>
+  <div class="date"><span id="date"></span><button type="button" id="syncStat" hidden></button></div>
   <h1 id="summary"></h1>
   <div class="bar">
     <div class="seg" id="seg">
@@ -224,6 +232,96 @@ function migrate(st) {
 if (migrate(S)) Store.save(S);
 let filter = 'all';
 try { filter = localStorage.getItem(FILTER_KEY) || 'all'; } catch (e) {}
+/* ---------- 同步（Google 試算表） ---------- */
+const CFG_KEY = 'plantlog.sync', QUEUE_KEY = 'plantlog.queue';
+const readJSON = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+const writeJSON = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+let cfg = readJSON(CFG_KEY, null);
+let queue = readJSON(QUEUE_KEY, []);
+const sync = { busy:false, again:false, last:null, error:null, timer:null };
+
+function applyOp(st, op) {
+  switch (op.t) {
+    case 'addLog': if (!st.logs.some(l => l.id === op.log.id)) st.logs.push(op.log); break;
+    case 'delLog': st.logs = st.logs.filter(l => l.id !== op.id); break;
+    case 'putPlant': { const i = st.plants.findIndex(p => p.id === op.plant.id); if (i >= 0) st.plants[i] = op.plant; else st.plants.push(op.plant); break; }
+    case 'delPlant': st.plants = st.plants.filter(p => p.id !== op.id); st.logs = st.logs.filter(l => l.pid !== op.id); break;
+    case 'replaceAll': st.plants = op.plants; st.logs = op.logs; break;
+  }
+}
+// 所有修改都走這裡：先改這台裝置上的資料，有連線就排入同步佇列
+function commit(op) {
+  applyOp(S, op);
+  Store.save(S);
+  if (cfg) { queue.push(op); writeJSON(QUEUE_KEY, queue); scheduleSync(); }
+}
+function scheduleSync(delay = 800) { clearTimeout(sync.timer); sync.timer = setTimeout(runSync, delay); }
+async function post(url, body) {
+  let res, data;
+  try { res = await fetch(url, { method:'POST', body: JSON.stringify(body) }); }
+  catch (e) { throw new Error('連不上試算表。請確認網址正確，而且部署時「誰可以存取」選了「所有人」'); }
+  try { data = await res.json(); }
+  catch (e) { throw new Error('試算表的回應不正確，請確認網址是 /exec 結尾的那一個'); }
+  if (!data.ok) throw new Error(data.error === 'token' ? '密碼不對' : data.error || '試算表發生錯誤');
+  return data;
+}
+async function runSync() {
+  if (!cfg) return;
+  if (sync.busy) { sync.again = true; return; }
+  sync.busy = true; renderSync();
+  const sent = queue.slice();
+  try {
+    const data = await post(cfg.url, { token: cfg.token, ops: sent });
+    queue = queue.slice(sent.length); writeJSON(QUEUE_KEY, queue);
+    S.plants = data.plants; S.logs = data.logs;
+    for (const op of queue) applyOp(S, op);
+    Store.save(S);
+    sync.last = Date.now(); sync.error = null;
+    sync.busy = false;
+    refresh();
+  } catch (e) {
+    sync.error = e.message; sync.busy = false;
+  }
+  renderSync();
+  if (sync.again) { sync.again = false; runSync(); }
+}
+function renderSync() {
+  const el = $('#syncStat');
+  if (!cfg) { el.hidden = true; return; }
+  el.hidden = false;
+  el.className = sync.busy ? 'busy' : sync.error ? 'err' : queue.length ? 'busy' : '';
+  el.textContent = sync.busy ? '同步中' : sync.error ? (queue.length ? `${queue.length} 筆未同步` : '未同步') : queue.length ? '等待同步' : '已同步';
+  if (sheet.mode === 'settings') settingsSheet();
+}
+async function connect(btn) {
+  const url = $('#syncUrl').value.trim(), token = $('#syncToken').value.trim();
+  if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url)) return toast('網址要是 script.google.com 開頭、/exec 結尾');
+  if (!token) return toast('請輸入密碼');
+  if (!confirm('連線後：如果試算表是空的，會把這台裝置的紀錄上傳；如果試算表已經有資料，這台裝置會改用試算表裡的資料。要繼續嗎？')) return;
+  btn.disabled = true; btn.textContent = '連線中…';
+  try {
+    const data = await post(url, { token, ops: [{ t:'initIfEmpty', plants:S.plants, logs:S.logs }] });
+    cfg = { url, token }; writeJSON(CFG_KEY, cfg);
+    queue = []; writeJSON(QUEUE_KEY, queue);
+    S.plants = data.plants; S.logs = data.logs; Store.save(S);
+    sync.last = Date.now(); sync.error = null;
+    refresh(); renderSync();
+    toast(data.initialized ? '已連線，紀錄已上傳到試算表' : '已連線，改用試算表裡的資料');
+  } catch (e) {
+    toast(e.message);
+    btn.disabled = false; btn.textContent = '連線';
+  }
+}
+function disconnect() {
+  const msg = queue.length ? `還有 ${queue.length} 筆沒同步，中斷後這些只會留在這台裝置。確定中斷連線？` : '中斷連線後，紀錄會留在這台裝置，但不會再和試算表同步。確定嗎？';
+  if (!confirm(msg)) return;
+  cfg = null; writeJSON(CFG_KEY, null);
+  queue = []; writeJSON(QUEUE_KEY, queue);
+  sync.error = null;
+  refresh(); renderSync();
+  toast('已中斷連線');
+}
+
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
 /* ---------- 計算 ---------- */
@@ -284,7 +382,7 @@ function render() {
     return `<section class="group"><h2>${LOC[loc]}</h2>${body}</section>`;
   }).join('');
 
-  if (S.logs.length >= 5 && (!S.lastBackup || daysSince(S.lastBackup) >= 14)) {
+  if (!cfg && S.logs.length >= 5 && (!S.lastBackup || daysSince(S.lastBackup) >= 14)) {
     html += `<button type="button" class="banner" data-export>${S.lastBackup ? `上次備份是 ${daysSince(S.lastBackup)} 天前` : '紀錄還沒備份過'}，點這裡匯出備份</button>`;
   }
   $('#list').innerHTML = html;
@@ -321,13 +419,11 @@ function addLog(pid, act, ts) {
   const l = { id: uid(), pid, act, ts };
   const p = plantById(pid);
   if (act === 'fert' && p && p.fert) l.memo = p.fert;
-  S.logs.push(l);
-  Store.save(S);
+  commit({ t:'addLog', log:l });
   return l;
 }
 function removeLog(id) {
-  S.logs = S.logs.filter(l => l.id !== id);
-  Store.save(S);
+  commit({ t:'delLog', id });
 }
 function logWithUndo(pid, act, ts = Date.now()) {
   const p = plantById(pid); if (!p) return;
@@ -423,12 +519,12 @@ function savePlant() {
     note: $('#fNote').value.trim()
   };
   if (sheet.pid) {
-    Object.assign(plantById(sheet.pid), data);
-    Store.save(S); render(); plantSheet(sheet.pid);
+    commit({ t:'putPlant', plant:{ ...plantById(sheet.pid), ...data } });
+    render(); plantSheet(sheet.pid);
     toast('已儲存');
   } else {
-    S.plants.push({ id: uid(), ...data });
-    Store.save(S); render(); closeSheet();
+    commit({ t:'putPlant', plant:{ id: uid(), ...data } });
+    render(); closeSheet();
     toast(`已新增 ${name}`);
   }
 }
@@ -436,9 +532,8 @@ function deletePlant(pid) {
   const p = plantById(pid); if (!p) return;
   const n = S.logs.filter(l => l.pid === pid).length;
   if (!confirm(`刪除「${p.name}」${n ? `和它的 ${n} 筆紀錄` : ''}？刪除後無法復原。`)) return;
-  S.plants = S.plants.filter(x => x.id !== pid);
-  S.logs = S.logs.filter(l => l.pid !== pid);
-  Store.save(S); render(); closeSheet();
+  commit({ t:'delPlant', id:pid });
+  render(); closeSheet();
   toast(`已刪除 ${p.name}`);
 }
 
@@ -446,9 +541,22 @@ function settingsSheet() {
   sheet = { mode: 'settings', pid: null };
   openSheet(`
     <div class="sh-head"><div><h3>設定與備份</h3></div></div>
-    <button type="button" class="btn primary block" data-add>新增植物</button>
+    <button type="button" class="btn block" data-add>新增植物</button>
+    <h4>同步到 Google 試算表</h4>
+    ${cfg ? `
+      <p class="meta">已連線。${sync.busy ? '正在同步…' : sync.error ? `上次同步失敗：${esc(sync.error)}` : sync.last ? `最後同步：${fmt(sync.last)}` : ''}${queue.length ? `，${queue.length} 筆等待上傳` : ''}</p>
+      <button type="button" class="btn block" data-sync-now>立即同步</button>
+      <button type="button" class="btn danger block" data-disconnect>中斷連線</button>
+    ` : `
+      <p class="meta">連線後，手機和電腦會讀寫同一張試算表。網址和密碼來自你部署的 Apps Script。</p>
+      <div class="form">
+        <label>網頁應用程式網址<input id="syncUrl" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></label>
+        <label>密碼<input id="syncToken" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"></label>
+      </div>
+      <button type="button" class="btn primary block" data-connect>連線</button>
+    `}
     <h4>備份</h4>
-    <p class="meta">紀錄只存在這支手機的這個 App 裡。從主畫面刪除 App 會一起清掉，建議每兩週匯出一次，存到「檔案」或 iCloud。</p>
+    <p class="meta">${cfg ? '紀錄已同步到試算表。想多留一份，也可以匯出備份檔。' : '紀錄只存在這台裝置的這個 App 裡。從主畫面刪除 App 會一起清掉，建議每兩週匯出一次，存到「檔案」或 iCloud。'}</p>
     <p class="meta">上次備份：${S.lastBackup ? fmt(S.lastBackup) : '還沒備份過'}</p>
     <button type="button" class="btn block" data-export>匯出備份</button>
     <label class="btn block">匯入備份<input type="file" id="importFile" accept="application/json,.json" hidden></label>
@@ -487,10 +595,12 @@ async function importData(file) {
     const data = JSON.parse(await file.text());
     const ok = data && Array.isArray(data.plants) && Array.isArray(data.logs) && data.plants.every(p => p.id && p.name);
     if (!ok) throw new Error('bad');
-    if (!confirm(`匯入會取代目前的 ${S.plants.length} 項植物和 ${S.logs.length} 筆紀錄，改成備份裡的 ${data.plants.length} 項植物和 ${data.logs.length} 筆紀錄。確定嗎？`)) return;
-    S = { version: data.version || 1, plants:data.plants, logs:data.logs, lastBackup: Date.parse(data.exportedAt) || Date.now() };
-    migrate(S);
-    Store.save(S); render(); closeSheet();
+    if (!confirm(`匯入會取代目前的 ${S.plants.length} 項植物和 ${S.logs.length} 筆紀錄${cfg ? '（試算表也會一起取代）' : ''}，改成備份裡的 ${data.plants.length} 項植物和 ${data.logs.length} 筆紀錄。確定嗎？`)) return;
+    const imp = { version: data.version || 1, plants:data.plants, logs:data.logs };
+    migrate(imp);
+    S.lastBackup = Date.parse(data.exportedAt) || Date.now();
+    commit({ t:'replaceAll', plants:imp.plants, logs:imp.logs });
+    render(); closeSheet();
     toast(`已匯入 ${data.logs.length} 筆紀錄`);
   } catch (e) {
     toast('這個檔案不是植物照護的備份檔');
@@ -533,6 +643,9 @@ document.addEventListener('click', e => {
   else if ('add' in d) editSheet(null);
   else if ('export' in d) exportData();
   else if ('close' in d) closeSheet();
+  else if ('connect' in d) connect(t);
+  else if ('disconnect' in d) disconnect();
+  else if ('syncNow' in d || t.id === 'syncStat') { if (sync.error) toast(sync.error); runSync(); }
 });
 document.addEventListener('change', e => {
   if (e.target.id === 'importFile' && e.target.files[0]) importData(e.target.files[0]);
@@ -542,9 +655,12 @@ document.addEventListener('change', e => {
   }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { refresh(); if (cfg) runSync(); } });
+window.addEventListener('online', () => { if (cfg) runSync(); });
 
 render();
+renderSync();
+if (cfg) runSync();
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
