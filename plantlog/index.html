@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="植物照護">
+<meta name="theme-color" content="#F1F3EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121814" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>植物照護</title>
+<style>
+:root{
+  --bg:#F1F3EE; --surface:#FFFFFF; --ink:#1E2B24; --muted:#66736B; --line:#DCE2D8;
+  --water:#2F78A8; --water-soft:#E1EDF5; --ok:#3F8A5A; --soon:#B9821F; --late:#B23A5B;
+  --num: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+  --text: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121814; --surface:#1B231E; --ink:#E5ECE6; --muted:#93A198; --line:#2B3530;
+    --water:#6AAFD9; --water-soft:#1E3442; --ok:#6BBF8A; --soon:#E0AE52; --late:#E57A98;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121814; --surface:#1B231E; --ink:#E5ECE6; --muted:#93A198; --line:#2B3530;
+  --water:#6AAFD9; --water-soft:#1E3442; --ok:#6BBF8A; --soon:#E0AE52; --late:#E57A98;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--text);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{touch-action:manipulation;cursor:pointer}
+:focus-visible{outline:2px solid var(--water);outline-offset:2px}
+
+.top{max-width:640px;margin:0 auto;padding:18px 20px 6px}
+.date{color:var(--muted);font-size:15px}
+h1{font-size:27px;line-height:1.25;margin:2px 0 16px;font-weight:700}
+.bar{display:flex;gap:10px;align-items:center}
+.seg{flex:1;display:flex;background:var(--line);border-radius:10px;padding:3px}
+.seg button{flex:1;border:0;background:transparent;padding:7px 0;border-radius:8px;font-size:15px;color:var(--muted)}
+.seg button.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.icon-btn{flex:none;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;padding:0}
+.icon-btn svg{width:20px;height:20px}
+
+main{max-width:640px;margin:0 auto;padding:4px 16px 48px}
+.group h2{font-size:15px;color:var(--muted);font-weight:600;margin:22px 4px 8px}
+.rows{background:var(--surface);border-radius:14px;overflow:hidden}
+.row{display:flex;align-items:stretch;gap:12px;padding:0 12px 0 0;min-height:72px}
+.row + .row{border-top:1px solid var(--line)}
+.s-ok{--c:var(--ok)} .s-soon{--c:var(--soon)} .s-late{--c:var(--late)} .s-none,.s-free{--c:var(--muted)}
+.gauge{flex:none;width:6px;margin:10px 0;border-radius:0 3px 3px 0;background:var(--line);position:relative;overflow:hidden}
+.gauge i{position:absolute;left:0;right:0;bottom:0;background:var(--c);transition:height .3s}
+.info{flex:1;min-width:0;display:flex;align-items:center;gap:10px;border:0;background:none;text-align:left;padding:12px 0}
+.info .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.name{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qty{color:var(--muted);font-weight:500;font-size:14px;margin-left:5px}
+.meta{font-size:13px;color:var(--muted)}
+.days{flex:none;text-align:right;min-width:58px}
+.days b{display:block;font-family:var(--num);font-size:30px;line-height:1;font-weight:600;color:var(--c)}
+.days b.word{font-size:21px;line-height:30px}
+.days span{display:block;font-size:12px;color:var(--muted);margin-top:4px}
+.quick{flex:none;align-self:center;border:0;background:var(--water-soft);color:var(--water);font-weight:600;border-radius:999px;padding:9px 0;width:64px;font-size:15px}
+.quick:active{transform:scale(.95)}
+.empty{color:var(--muted);font-size:15px;padding:16px;background:var(--surface);border-radius:14px;margin:0}
+.banner{display:block;width:100%;margin-top:24px;border:1px dashed var(--soon);background:transparent;color:var(--soon);border-radius:12px;padding:12px;font-size:14px}
+
+.toast{position:fixed;z-index:30;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translate(-50%,16px);opacity:0;pointer-events:none;background:var(--ink);color:var(--bg);border-radius:12px;padding:10px 10px 10px 16px;display:flex;gap:10px;align-items:center;font-size:15px;transition:opacity .2s,transform .2s;max-width:calc(100% - 32px);box-shadow:0 6px 20px rgba(0,0,0,.18)}
+.toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.toast span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toast button{flex:none;white-space:nowrap;border:0;background:transparent;color:var(--bg);font-weight:700;padding:6px 8px;text-decoration:underline}
+
+.sheet-wrap{position:fixed;inset:0;z-index:20;visibility:hidden}
+.sheet-wrap.open{visibility:visible}
+.backdrop{position:absolute;inset:0;background:rgba(0,0,0,.38);opacity:0;transition:opacity .2s}
+.open .backdrop{opacity:1}
+.sheet{position:absolute;left:0;right:0;bottom:0;max-width:640px;margin:0 auto;background:var(--bg);border-radius:18px 18px 0 0;max-height:88%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 20px calc(28px + env(safe-area-inset-bottom,0px));transform:translateY(100%);transition:transform .25s ease}
+.open .sheet{transform:none}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 14px}
+.sh-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
+.sh-head > div{flex:1;min-width:0}
+.sh-head h3{font-size:22px;margin:0;line-height:1.3}
+.sheet h4{font-size:14px;color:var(--muted);font-weight:600;margin:20px 0 8px}
+.note{background:var(--surface);border-radius:10px;padding:10px 12px;margin:0 0 4px;font-size:14px;white-space:pre-wrap}
+.stats{list-style:none;margin:0;padding:0;background:var(--surface);border-radius:12px}
+.stats li{display:flex;justify-content:space-between;padding:10px 14px;font-size:15px}
+.stats li + li{border-top:1px solid var(--line)}
+.stats li span:last-child{color:var(--muted)}
+.acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:8px}
+.act{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:13px 4px;font-size:15px;font-weight:600}
+.act.primary{background:var(--water);border-color:var(--water);color:#fff}
+.act:active{transform:scale(.97)}
+.backfill{display:grid;grid-template-columns:1fr 1.7fr;gap:8px}
+.backfill input{min-width:0}
+.backfill .btn{grid-column:1 / -1}
+input,select,textarea{font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);width:100%;-webkit-appearance:none;appearance:none}
+select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:30px}
+.logs{list-style:none;margin:0;padding:0}
+.logs li{display:flex;align-items:center;gap:12px;padding:9px 2px;font-size:15px}
+.logs li + li{border-top:1px solid var(--line)}
+.logs time{color:var(--muted);font-variant-numeric:tabular-nums;min-width:96px}
+.logs li span{flex:1}
+.logs .x{border:0;background:none;color:var(--late);font-size:14px;padding:4px 6px}
+.btn{display:inline-flex;justify-content:center;align-items:center;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 16px;font-size:16px;font-weight:600;cursor:pointer}
+.btn.small{padding:7px 14px;font-size:15px}
+.btn.primary{background:var(--water);border-color:var(--water);color:#fff}
+.btn.danger{color:var(--late);background:transparent}
+.btn.block{display:flex;width:100%;margin-top:8px}
+.form label{display:block;margin-top:12px;font-size:14px;color:var(--muted)}
+.form label > input,.form label > select,.form label > textarea{margin-top:5px;color:var(--ink)}
+.form small{display:block;margin-top:4px;font-size:13px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-actions{display:flex;gap:10px;margin-top:20px}
+.form-actions .btn{flex:1}
+.sheet p.meta{margin:6px 0}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="date" id="date"></div>
+  <h1 id="summary"></h1>
+  <div class="bar">
+    <div class="seg" id="seg">
+      <button type="button" data-filter="all">全部</button>
+      <button type="button" data-filter="in">室內</button>
+      <button type="button" data-filter="out">室外</button>
+    </div>
+    <button type="button" class="icon-btn" id="settingsBtn" aria-label="設定與備份">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+    </button>
+  </div>
+</header>
+<main id="list"></main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="sheet-wrap" id="sheetWrap">
+  <div class="backdrop" data-close></div>
+  <section class="sheet" id="sheet" role="dialog" aria-modal="true"></section>
+</div>
+
+<script>
+(() => {
+'use strict';
+const KEY = 'plantlog.v1';
+const FILTER_KEY = 'plantlog.filter';
+const DAY = 864e5;
+const ACT = { water:'澆水', change:'換水', mist:'泡水', fert:'施肥', prune:'整理', check:'檢查土壤' };
+const KIND = { soil:'土耕', water:'水耕', air:'空氣鳳梨' };
+const LOC = { in:'室內', out:'室外' };
+const SEED = [
+  ['in','龜背芋',1,'soil',7], ['in','黃金葛',3,'water',10], ['in','粗肋草',1,'soil',7],
+  ['in','Birkin',1,'soil',7], ['in','孔雀竹芋',1,'soil',5], ['in','空氣鳳梨',1,'air',7],
+  ['in','白油畫竹芋',1,'soil',5],
+  ['out','粗肋草',3,'soil',4], ['out','黃金葛',3,'soil',3], ['out','黃金葛',1,'water',7],
+  ['out','防蚊樹',1,'soil',3], ['out','白斑龜背芋',1,'soil',5]
+];
+
+const $ = s => document.querySelector(s);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- 資料層：之後升級 Google Sheets 只要改這裡 ---------- */
+const Store = {
+  load() {
+    try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; }
+    catch (e) { return null; }
+  },
+  save(state) {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); return true; }
+    catch (e) { toast('儲存失敗：瀏覽器擋住了資料寫入'); return false; }
+  }
+};
+function seed() {
+  return {
+    version: 1,
+    plants: SEED.map(([loc, name, qty, kind, interval]) => ({ id: uid(), name, loc, qty, kind, interval, note: '' })),
+    logs: [],
+    lastBackup: null
+  };
+}
+let S = Store.load();
+if (!S || !Array.isArray(S.plants)) { S = seed(); Store.save(S); }
+let filter = 'all';
+try { filter = localStorage.getItem(FILTER_KEY) || 'all'; } catch (e) {}
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+/* ---------- 計算 ---------- */
+const plantById = id => S.plants.find(p => p.id === id);
+const primary = p => p.kind === 'water' ? 'change' : p.kind === 'air' ? 'mist' : 'water';
+const actionsOf = p => [primary(p), 'fert', 'prune', ...(p.kind === 'soil' ? ['check'] : [])];
+const sod = ts => { const d = new Date(ts); d.setHours(0,0,0,0); return d.getTime(); };
+const daysSince = ts => Math.round((sod(Date.now()) - sod(ts)) / DAY);
+function last(pid, act) {
+  let m = null;
+  for (const l of S.logs) if (l.pid === pid && l.act === act && (m === null || l.ts > m)) m = l.ts;
+  return m;
+}
+function rel(ts) {
+  if (ts == null) return '還沒紀錄';
+  const d = daysSince(ts);
+  return d <= 0 ? '今天' : d === 1 ? '昨天' : d + ' 天前';
+}
+function status(p) {
+  const ts = last(p.id, primary(p));
+  if (ts == null) return { st:'none', d:null, score:1e6 };
+  const d = daysSince(ts);
+  if (!p.interval) return { st:'free', d, score:-1 };
+  const r = d / p.interval;
+  return { st: d >= p.interval ? 'late' : r >= 0.7 ? 'soon' : 'ok', d, score:r };
+}
+const pad = n => String(n).padStart(2, '0');
+function fmt(ts) {
+  const d = new Date(ts), now = new Date();
+  const md = `${d.getMonth()+1}/${d.getDate()}`;
+  return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + '/' : '') + md + ` ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function localInput(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+const ymd = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+
+/* ---------- 主畫面 ---------- */
+function render() {
+  const now = new Date();
+  $('#date').textContent = `${now.getMonth()+1}月${now.getDate()}日 星期${'日一二三四五六'[now.getDay()]}`;
+  const all = S.plants.map(status);
+  const late = all.filter(s => s.st === 'late').length;
+  const logged = all.some(s => s.st !== 'none');
+  $('#summary').textContent = !S.plants.length ? '還沒有植物' :
+    !logged ? '照顧完按一下，就會開始算天數' :
+    late ? `有 ${late} 項該照顧了` : '目前都照顧到了';
+
+  document.querySelectorAll('#seg button').forEach(b => b.classList.toggle('on', b.dataset.filter === filter));
+
+  const groups = filter === 'all' ? ['in', 'out'] : [filter];
+  let html = groups.map(loc => {
+    const ps = S.plants.filter(p => p.loc === loc).map(p => ({ p, ...status(p) })).sort((a, b) => b.score - a.score);
+    const body = ps.length ? `<div class="rows">${ps.map(rowHTML).join('')}</div>`
+                           : `<p class="empty">${LOC[loc]}還沒有植物。到右上角設定新增。</p>`;
+    return `<section class="group"><h2>${LOC[loc]}</h2>${body}</section>`;
+  }).join('');
+
+  if (S.logs.length >= 5 && (!S.lastBackup || daysSince(S.lastBackup) >= 14)) {
+    html += `<button type="button" class="banner" data-export>${S.lastBackup ? `上次備份是 ${daysSince(S.lastBackup)} 天前` : '紀錄還沒備份過'}，點這裡匯出備份</button>`;
+  }
+  $('#list').innerHTML = html;
+}
+function rowHTML({ p, st, d }) {
+  const a = primary(p);
+  const fill = st === 'none' || !p.interval ? 0 : Math.max(0, 1 - d / p.interval);
+  const big = d == null ? '—' : d === 0 ? '今天' : d;
+  const small = d == null ? '還沒紀錄' : d === 0 ? `已${ACT[a]}` : `天前${ACT[a]}`;
+  const parts = p.name === KIND[p.kind] ? [] : [KIND[p.kind]];
+  if (p.interval) parts.push(`約每 ${p.interval} 天`);
+  let meta = parts.join('，');
+  if (p.kind === 'soil') {
+    const c = last(p.id, 'check'), w = last(p.id, 'water');
+    if (c != null && (w == null || c > w)) meta += `，${rel(c)}檢查過`;
+  }
+  return `<div class="row s-${st}">
+    <div class="gauge"><i style="height:${Math.round(fill * 100)}%"></i></div>
+    <button type="button" class="info" data-open="${p.id}">
+      <span class="txt"><span class="name">${esc(p.name)}${p.qty > 1 ? `<span class="qty">×${p.qty}</span>` : ''}</span><span class="meta">${meta}</span></span>
+      <span class="days"><b class="${typeof big === 'string' ? 'word' : ''}">${big}</b><span>${small}</span></span>
+    </button>
+    <button type="button" class="quick" data-log="${p.id}" data-act="${a}">${ACT[a]}</button>
+  </div>`;
+}
+
+/* ---------- 紀錄 ---------- */
+function addLog(pid, act, ts) {
+  const l = { id: uid(), pid, act, ts };
+  S.logs.push(l);
+  Store.save(S);
+  return l;
+}
+function removeLog(id) {
+  S.logs = S.logs.filter(l => l.id !== id);
+  Store.save(S);
+}
+function logWithUndo(pid, act, ts = Date.now()) {
+  const p = plantById(pid); if (!p) return;
+  const l = addLog(pid, act, ts);
+  refresh();
+  toast(`${p.name} 已${ACT[act]}`, () => { removeLog(l.id); refresh(); });
+}
+
+/* ---------- 底部面板 ---------- */
+let sheet = { mode: null, pid: null };
+function openSheet(html) {
+  $('#sheet').innerHTML = '<div class="grab"></div>' + html;
+  $('#sheetWrap').classList.add('open');
+}
+function closeSheet() {
+  $('#sheetWrap').classList.remove('open');
+  sheet = { mode: null, pid: null };
+}
+function refresh() {
+  render();
+  if (sheet.mode === 'plant') plantSheet(sheet.pid);
+  if (sheet.mode === 'settings') settingsSheet();
+}
+
+function plantSheet(pid) {
+  const p = plantById(pid); if (!p) return closeSheet();
+  sheet = { mode: 'plant', pid };
+  const acts = actionsOf(p);
+  const logs = S.logs.filter(l => l.pid === pid).sort((a, b) => b.ts - a.ts);
+  const shown = logs.slice(0, 30);
+  openSheet(`
+    <div class="sh-head">
+      <div><h3>${esc(p.name)}${p.qty > 1 ? `<span class="qty">×${p.qty}</span>` : ''}</h3>
+      <div class="meta">${LOC[p.loc]}，${KIND[p.kind]}${p.interval ? `，約每 ${p.interval} 天${ACT[primary(p)]}` : ''}</div></div>
+      <button type="button" class="btn small" data-edit="${p.id}">編輯</button>
+    </div>
+    ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
+    <ul class="stats">${acts.map(a => `<li><span>${ACT[a]}</span><span>${rel(last(p.id, a))}</span></li>`).join('')}</ul>
+    <h4>現在記一筆</h4>
+    <div class="acts">${acts.map(a => `<button type="button" class="act${a === primary(p) ? ' primary' : ''}" data-sheet-log="${a}">${ACT[a]}</button>`).join('')}</div>
+    <h4>忘了記？補登</h4>
+    <div class="backfill">
+      <select id="bfAct" aria-label="動作">${acts.map(a => `<option value="${a}">${ACT[a]}</option>`).join('')}</select>
+      <input type="datetime-local" id="bfTime" value="${localInput(Date.now() - DAY)}" max="${localInput(Date.now())}" aria-label="時間">
+      <button type="button" class="btn" data-backfill>補登</button>
+    </div>
+    <h4>紀錄</h4>
+    ${shown.length ? `<ul class="logs">${shown.map(l => `<li><time>${fmt(l.ts)}</time><span>${ACT[l.act] || l.act}</span><button type="button" class="x" data-del-log="${l.id}">刪除</button></li>`).join('')}</ul>
+      ${logs.length > shown.length ? `<p class="meta">另有 ${logs.length - shown.length} 筆較早的紀錄</p>` : ''}`
+      : '<p class="meta">還沒有紀錄。照顧完按上面的按鈕記一筆。</p>'}
+  `);
+}
+
+function editSheet(pid) {
+  const p = pid ? plantById(pid) : { name:'', loc: filter === 'out' ? 'out' : 'in', qty:1, kind:'soil', interval:7, note:'' };
+  sheet = { mode: 'edit', pid: pid || null };
+  const opt = (map, v) => Object.entries(map).map(([k, t]) => `<option value="${k}"${k === v ? ' selected' : ''}>${t}</option>`).join('');
+  openSheet(`
+    <div class="sh-head"><div><h3>${pid ? '編輯植物' : '新增植物'}</h3></div></div>
+    <div class="form">
+      <label>名稱<input id="fName" value="${esc(p.name)}" maxlength="30" autocomplete="off"></label>
+      <div class="two">
+        <label>位置<select id="fLoc">${opt(LOC, p.loc)}</select></label>
+        <label>數量<input id="fQty" type="number" min="1" inputmode="numeric" value="${p.qty}"></label>
+      </div>
+      <label>種法<select id="fKind">${opt(KIND, p.kind)}</select>
+        <small>土耕記「澆水」，水耕記「換水」，空氣鳳梨記「泡水」。</small></label>
+      <label>提醒間隔（天）<input id="fInt" type="number" min="0" inputmode="numeric" value="${p.interval || 0}">
+        <small>超過這個天數會變紅。填 0 就不提醒。</small></label>
+      <label>備註<textarea id="fNote" rows="2" maxlength="200">${esc(p.note)}</textarea></label>
+      <div class="form-actions">
+        <button type="button" class="btn" data-cancel>取消</button>
+        <button type="button" class="btn primary" data-save>儲存</button>
+      </div>
+      ${pid ? '<button type="button" class="btn danger block" data-delplant>刪除這株植物</button>' : ''}
+    </div>
+  `);
+}
+function savePlant() {
+  const name = $('#fName').value.trim();
+  if (!name) { toast('請填寫名稱'); $('#fName').focus(); return; }
+  const data = {
+    name,
+    loc: $('#fLoc').value,
+    qty: Math.max(1, parseInt($('#fQty').value, 10) || 1),
+    kind: $('#fKind').value,
+    interval: Math.max(0, parseInt($('#fInt').value, 10) || 0),
+    note: $('#fNote').value.trim()
+  };
+  if (sheet.pid) {
+    Object.assign(plantById(sheet.pid), data);
+    Store.save(S); render(); plantSheet(sheet.pid);
+    toast('已儲存');
+  } else {
+    S.plants.push({ id: uid(), ...data });
+    Store.save(S); render(); closeSheet();
+    toast(`已新增 ${name}`);
+  }
+}
+function deletePlant(pid) {
+  const p = plantById(pid); if (!p) return;
+  const n = S.logs.filter(l => l.pid === pid).length;
+  if (!confirm(`刪除「${p.name}」${n ? `和它的 ${n} 筆紀錄` : ''}？刪除後無法復原。`)) return;
+  S.plants = S.plants.filter(x => x.id !== pid);
+  S.logs = S.logs.filter(l => l.pid !== pid);
+  Store.save(S); render(); closeSheet();
+  toast(`已刪除 ${p.name}`);
+}
+
+function settingsSheet() {
+  sheet = { mode: 'settings', pid: null };
+  openSheet(`
+    <div class="sh-head"><div><h3>設定與備份</h3></div></div>
+    <button type="button" class="btn primary block" data-add>新增植物</button>
+    <h4>備份</h4>
+    <p class="meta">紀錄只存在這支手機的這個 App 裡。從主畫面刪除 App 會一起清掉，建議每兩週匯出一次，存到「檔案」或 iCloud。</p>
+    <p class="meta">上次備份：${S.lastBackup ? fmt(S.lastBackup) : '還沒備份過'}</p>
+    <button type="button" class="btn block" data-export>匯出備份</button>
+    <label class="btn block">匯入備份<input type="file" id="importFile" accept="application/json,.json" hidden></label>
+    <h4>關於提醒</h4>
+    <p class="meta">天數只是參考，澆水前還是用竹籤確認土壤。記「檢查土壤」不會重算澆水天數，只會在清單上顯示最近檢查過。</p>
+    <p class="meta">目前共 ${S.plants.length} 項植物、${S.logs.length} 筆紀錄。</p>
+  `);
+}
+
+/* ---------- 備份 ---------- */
+function markBackup() {
+  S.lastBackup = Date.now(); Store.save(S); refresh();
+  toast('已匯出備份');
+}
+async function exportData() {
+  const json = JSON.stringify({ app:'plantlog', version:1, exportedAt:new Date().toISOString(), plants:S.plants, logs:S.logs }, null, 2);
+  const name = `plantlog-${ymd()}.json`;
+  const file = new File([json], name, { type:'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files:[file] })) {
+      await navigator.share({ files:[file], title:name });
+      return markBackup();
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  markBackup();
+}
+async function importData(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    const ok = data && Array.isArray(data.plants) && Array.isArray(data.logs) && data.plants.every(p => p.id && p.name);
+    if (!ok) throw new Error('bad');
+    if (!confirm(`匯入會取代目前的 ${S.plants.length} 項植物和 ${S.logs.length} 筆紀錄，改成備份裡的 ${data.plants.length} 項植物和 ${data.logs.length} 筆紀錄。確定嗎？`)) return;
+    S = { version:1, plants:data.plants, logs:data.logs, lastBackup: Date.parse(data.exportedAt) || Date.now() };
+    Store.save(S); render(); closeSheet();
+    toast(`已匯入 ${data.logs.length} 筆紀錄`);
+  } catch (e) {
+    toast('這個檔案不是植物照護的備份檔');
+  }
+}
+
+/* ---------- 提示 ---------- */
+let toastTimer;
+function toast(msg, undo) {
+  const el = $('#toast');
+  el.innerHTML = `<span>${esc(msg)}</span>` + (undo ? '<button type="button">復原</button>' : '');
+  if (undo) el.querySelector('button').onclick = () => { undo(); hideToast(); };
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, undo ? 5000 : 2500);
+}
+function hideToast() { $('#toast').classList.remove('show'); }
+
+/* ---------- 事件 ---------- */
+document.addEventListener('click', e => {
+  const t = e.target.closest('button,[data-close]');
+  if (!t) return;
+  const d = t.dataset;
+  if (d.filter) { filter = d.filter; try { localStorage.setItem(FILTER_KEY, filter); } catch (_) {} render(); }
+  else if (t.id === 'settingsBtn') settingsSheet();
+  else if (d.open) plantSheet(d.open);
+  else if (d.log) logWithUndo(d.log, d.act);
+  else if (d.sheetLog) logWithUndo(sheet.pid, d.sheetLog);
+  else if ('backfill' in d) {
+    const ts = new Date($('#bfTime').value).getTime();
+    if (!ts) return toast('請選擇時間');
+    if (ts > Date.now()) return toast('不能補登未來的時間');
+    logWithUndo(sheet.pid, $('#bfAct').value, ts);
+  }
+  else if (d.delLog) { if (confirm('刪除這筆紀錄？')) { removeLog(d.delLog); refresh(); } }
+  else if (d.edit) editSheet(d.edit);
+  else if ('save' in d) savePlant();
+  else if ('cancel' in d) sheet.pid ? plantSheet(sheet.pid) : closeSheet();
+  else if ('delplant' in d) deletePlant(sheet.pid);
+  else if ('add' in d) editSheet(null);
+  else if ('export' in d) exportData();
+  else if ('close' in d) closeSheet();
+});
+document.addEventListener('change', e => {
+  if (e.target.id === 'importFile' && e.target.files[0]) importData(e.target.files[0]);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+
+render();
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+})();
+</script>
+</body>
+</html>
