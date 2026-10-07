@@ -162,8 +162,9 @@ const SEED = [
   ['in','龜背芋',1,'soil',7], ['in','黃金葛',3,'water',10], ['in','粗肋草',1,'soil',7],
   ['in','Birkin',1,'soil',7], ['in','孔雀竹芋',1,'soil',5], ['in','空氣鳳梨',1,'air',1],
   ['in','白油畫竹芋',1,'soil',5],
-  ['out','粗肋草',3,'soil',4], ['out','黃金葛',3,'soil',3], ['out','黃金葛',1,'water',7],
-  ['out','防蚊樹',1,'soil',3], ['out','白斑龜背芋',1,'soil',5]
+  ['out','粗肋草',3,'soil',4], ['out','白斑黃金葛',2,'soil',3], ['out','萊姆&斑葉黃金葛',1,'soil',3],
+  ['out','白斑黃金葛',1,'water',7], ['out','防蚊樹',1,'soil',3], ['out','白斑龜背芋',1,'soil',5],
+  ['out','鹿角蕨',3,'soil',4], ['out','多肉',1,'soil',7]
 ];
 
 const FERT = { water:'易施肥', soil:'花寶2號（1:1000）', air:'' };
@@ -185,7 +186,7 @@ const Store = {
 };
 function seed() {
   return {
-    version: 2,
+    version: 3,
     plants: SEED.map(([loc, name, qty, kind, interval]) => ({ id: uid(), name, loc, qty, kind, interval, fert: defaultFert(kind), note: '' })),
     logs: [],
     lastBackup: null
@@ -193,14 +194,31 @@ function seed() {
 }
 let S = Store.load();
 if (!S || !Array.isArray(S.plants)) { S = seed(); Store.save(S); }
-// 舊資料升級：補上肥料、空氣鳳梨改成每天噴水（使用者改過的天數不動）
+// 舊資料升級：只補新東西，使用者改過的名稱、天數和紀錄都不動
 function migrate(st) {
-  if ((st.version || 1) >= 2) return false;
-  for (const p of st.plants) {
-    if (p.fert == null) p.fert = defaultFert(p.kind);
-    if (p.kind === 'air' && p.interval === 7) p.interval = 1;
+  const v = st.version || 1;
+  if (v >= 3) return false;
+  if (v < 2) {
+    // v2：補上肥料、空氣鳳梨改成每天噴水
+    for (const p of st.plants) {
+      if (p.fert == null) p.fert = defaultFert(p.kind);
+      if (p.kind === 'air' && p.interval === 7) p.interval = 1;
+    }
   }
-  st.version = 2;
+  // v3：陽台黃金葛分品種，補上鹿角蕨和多肉
+  const out = st.plants.filter(p => p.loc === 'out');
+  const soilPothos = out.find(p => p.name === '黃金葛' && p.kind === 'soil');
+  if (soilPothos) { soilPothos.name = '白斑黃金葛'; if (soilPothos.qty === 3) soilPothos.qty = 2; }
+  const waterPothos = out.find(p => p.name === '黃金葛' && p.kind === 'water');
+  if (waterPothos) waterPothos.name = '白斑黃金葛';
+  const add = (name, qty, kind, interval) => {
+    if (!st.plants.some(p => p.loc === 'out' && p.name === name))
+      st.plants.push({ id: uid(), name, loc: 'out', qty, kind, interval, fert: defaultFert(kind), note: '' });
+  };
+  add('萊姆&斑葉黃金葛', 1, 'soil', 3);
+  add('鹿角蕨', 3, 'soil', 4);
+  add('多肉', 1, 'soil', 7);
+  st.version = 3;
   return true;
 }
 if (migrate(S)) Store.save(S);
@@ -446,7 +464,7 @@ function markBackup() {
   toast('已匯出備份');
 }
 async function exportData() {
-  const json = JSON.stringify({ app:'plantlog', version:2, exportedAt:new Date().toISOString(), plants:S.plants, logs:S.logs }, null, 2);
+  const json = JSON.stringify({ app:'plantlog', version:3, exportedAt:new Date().toISOString(), plants:S.plants, logs:S.logs }, null, 2);
   const name = `plantlog-${ymd()}.json`;
   const file = new File([json], name, { type:'application/json' });
   try {

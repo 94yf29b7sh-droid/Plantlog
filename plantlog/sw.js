@@ -1,5 +1,5 @@
 // 離線快取：先抓網路最新版，抓不到才用快取（改版後打開 App 就會更新）
-const CACHE = 'plantlog-v3';
+const CACHE = 'plantlog-v4';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
