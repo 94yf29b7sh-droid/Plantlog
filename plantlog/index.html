@@ -197,7 +197,7 @@
         --c:var(--ok)
     }
 
-    .s-soon {
+    .s-soon, .s-due {
         --c:var(--soon)
     }
 
@@ -207,6 +207,10 @@
 
     .s-checked {
         --c:var(--ok)
+    }
+
+    .s-done {
+        --c:var(--water)
     }
 
     .s-none, .s-free {
@@ -1148,7 +1152,8 @@
                     m = l.ts;
             return m;
         }
-        // 自動天數：取最近 5 筆主要動作，算 4 個間隔的中位數（用時間戳精準計算）
+        // 自動天數：取最近 4 筆主要動作，算 3 個間隔的中位數（用時間戳精準計算）
+        // 只看最近 3 次，換季時跟得比較快
         const AUTO_MIN_GAPS = 3;
         const median = a => {
             const s = [...a].sort((x, y) => x - y),
@@ -1156,7 +1161,7 @@
             return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
         };
         function gapsOf(p) {
-            const ts = S.logs.filter(l => l.pid === p.id && l.act === primary(p)).map(l => l.ts).sort((a, b) => a - b).slice(-5);
+            const ts = S.logs.filter(l => l.pid === p.id && l.act === primary(p)).map(l => l.ts).sort((a, b) => a - b).slice(-(AUTO_MIN_GAPS + 1));
             return ts.slice(1).map((t, i) => (t - ts[i]) / DAY);
         }
         function autoInterval(p) {
@@ -1174,12 +1179,18 @@
             const d = daysSince(ts);
             return d <= 0 ? '今天' : d === 1 ? '昨天' : d + ' 天前';
         }
+        // 戳竹籤土還濕：延後間隔的三分之一再提醒（至少 1 天）。例：5 天的植物延 2 天、20 天的延 7 天
+        const snoozeOf = iv => Math.max(1, Math.round(iv / 3));
+        const dayDiff = (a, b) => Math.round((sod(b) - sod(a)) / DAY);
+        // 狀態：ok 還不用管（綠）、checked 檢查過還濕、等下次再看（綠）
+        //       due 該去戳竹籤了（黃）、late 超過太久沒澆也沒檢查（紅）
         function status(p) {
             const ts = last(p.id, primary(p));
             if (ts == null)
                 return {
                     st: 'none',
                     d: null,
+                    due: null,
                     score: 1e6
                 };
             const d = daysSince(ts);
@@ -1188,22 +1199,42 @@
                 return {
                     st: 'free',
                     d,
+                    due: null,
                     score: -1
                 };
-            const r = d / iv;
-            let st = d >= iv ? 'late' : r >= 0.7 ? 'soon' : 'ok';
-            // 已經超過天數，但今天檢查過土壤（在最後一次澆水之後）：暫緩到明天再提醒
-            if (st === 'late' && p.kind === 'soil') {
+            // 這一輪該去看的日子：平常是間隔天數；澆水後檢查過土壤（還濕），就從檢查那天往後延
+            let due = iv,
+                checkedAt = null;
+            if (p.kind === 'soil') {
                 const c = last(p.id, 'check');
-                if (c != null && c > ts && daysSince(c) === 0)
-                    st = 'checked';
+                if (c != null && c > ts) {
+                    checkedAt = dayDiff(ts, c);
+                    due = Math.max(iv, checkedAt + snoozeOf(iv));
+                }
             }
+            // 過了該看的日子又再拖半個間隔，才變紅
+            const lateAt = due + Math.ceil(iv / 2);
+            let st;
+            if (d >= lateAt)
+                st = 'late';
+            else if (d >= due)
+                st = 'due';
+            else if (d === 0)
+                st = 'done';
+            else
+                st = checkedAt != null && d >= iv ? 'checked' : 'ok';
             return {
                 st,
                 d,
-                score: st === 'checked' ? 0.69 : r
+                due,
+                score: d / due
             };
         }
+        const DUE_WORD = {
+            water: '該戳竹籤',
+            change: '該換水',
+            mist: '該噴水'
+        };
         const pad = n => String(n).padStart(2, '0');
         const every = n => n === 1 ? '每天' : `約每 ${n} 天`;
         function fmt(ts) {
@@ -1227,10 +1258,12 @@
             $('#date').textContent = `${now.getMonth() + 1}月${now.getDate()}日 星期${'日一二三四五六'[now.getDay()]}`;
             const all = S.plants.map(status);
             const late = all.filter(s => s.st === 'late').length;
+            const due = all.filter(s => s.st === 'due').length;
             const logged = all.some(s => s.st !== 'none');
             $('#summary').textContent = !S.plants.length ? '還沒有植物' :
             !logged ? '照顧完按一下，就會開始算天數' :
-            late ? `有 ${late} 項該照顧了` : '目前都照顧到了';
+            late ? (due ? `${late} 項拖太久、${due} 項該看看` : `有 ${late} 項拖太久了`) :
+            due ? `有 ${due} 項該看看了` : '目前都照顧到了';
 
             document.querySelectorAll('#seg button').forEach(b => b.classList.toggle('on', b.dataset.filter === filter));
 
@@ -1250,12 +1283,13 @@
             }
             $('#list').innerHTML = html;
         }
-        function rowHTML({p, st, d}) {
+        function rowHTML({p, st, d, due}) {
             const a = primary(p);
             const iv = intervalOf(p);
-            const fill = st === 'none' || !iv ? 0 : Math.max(0, 1 - d / iv);
+            const fill = st === 'none' || !due ? 0 : Math.max(0, 1 - d / due);
             const big = d == null ? '—' : d === 0 ? '今天' : d;
-            const small = d == null ? '還沒紀錄' : d === 0 ? `已${ACT[a]}` : `天前${ACT[a]}`;
+            const small = d == null ? '還沒紀錄' : d === 0 ? `已${ACT[a]}` :
+            st === 'due' ? DUE_WORD[a] : st === 'late' ? `太久沒${ACT[a]}` : `天前${ACT[a]}`;
             const parts = p.name === KIND[p.kind] ? [] : [KIND[p.kind]];
             if (iv)
                 parts.push((isAuto(p) ? '自動：' : '') + every(iv));
@@ -1277,7 +1311,8 @@
                 </button>
                 <div class="btns">
                   <button type="button" class="quick" data-log="${p.id}" data-act="${a}">${ACT[a]}</button>
-                  <button type="button" class="quick fert" data-log="${p.id}" data-act="fert">施肥</button>
+                  ${p.kind === 'soil' ? `<button type="button" class="quick fert" data-log="${p.id}" data-act="check">檢查</button>`
+                  : `<button type="button" class="quick fert" data-log="${p.id}" data-act="fert">施肥</button>`}
                 </div>
               </div>`;
         }
@@ -1341,6 +1376,13 @@
                 settingsSheet();
         }
 
+        function nextHTML(p) {
+            const s = status(p);
+            if (s.due == null)
+                return '';
+            const left = s.due - s.d;
+            return `<li><span>下次提醒</span><span>${left > 0 ? `${left} 天後` : s.st === 'late' ? '已經拖太久了' : '現在'}</span></li>`;
+        }
         function plantSheet(pid) {
             const p = plantById(pid);
             if (!p)
@@ -1364,7 +1406,7 @@
                   <button type="button" class="btn small" data-edit="${p.id}">編輯</button>
                 </div>
                 ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
-                <ul class="stats">${acts.map(a => `<li><span>${ACT[a]}</span><span>${rel(last(p.id, a))}</span></li>`).join('')}<li><span>近期${pa}間隔</span><span>${g.length >= AUTO_MIN_GAPS ? `${median(g).toFixed(1)} 天` : `紀錄滿 ${AUTO_MIN_GAPS + 1} 筆後顯示`}</span></li></ul>
+                <ul class="stats">${acts.map(a => `<li><span>${ACT[a]}</span><span>${rel(last(p.id, a))}</span></li>`).join('')}${nextHTML(p)}<li><span>近期${pa}間隔</span><span>${g.length >= AUTO_MIN_GAPS ? `${median(g).toFixed(1)} 天` : `紀錄滿 ${AUTO_MIN_GAPS + 1} 筆後顯示`}</span></li></ul>
                 <h4>現在記一筆</h4>
                 <div class="acts">${acts.map(a => `<button type="button" class="act${a === primary(p) ? ' primary' : ''}" data-sheet-log="${a}">${ACT[a]}</button>`).join('')}</div>
                 <h4>忘了記？補登</h4>
@@ -1409,9 +1451,9 @@
                     <small>按「施肥」時會一起記下用了哪種肥料。</small></label>
                   <datalist id="fertList"><option value="易施肥"><option value="花寶2號（1:1000）"></datalist>
                   <label>提醒間隔（天）<input id="fInt" type="number" min="0" inputmode="numeric" value="${p.interval || 0}">
-                    <small>超過這個天數會變紅。填 0 就不提醒。有開自動調整的話，紀錄不夠時才用這個天數。</small></label>
+                    <small>到這個天數會變黃、提醒你去看看，拖太久才變紅。填 0 就不提醒。有開自動調整的話，紀錄不夠時才用這個天數。</small></label>
                   <label class="check"><input type="checkbox" id="fAuto"${p.auto ? ' checked' : ''}><span>依實際紀錄自動調整天數</span></label>
-                  <small class="hint">用最近 ${AUTO_MIN_GAPS + 1} 次間隔的中位數當提醒天數，換季時會自己跟著變。</small>
+                  <small class="hint">用最近 ${AUTO_MIN_GAPS} 次間隔的中位數當提醒天數，換季時會自己跟著變。</small>
                   <label>備註<textarea id="fNote" rows="2" maxlength="200">${esc(p.note)}</textarea></label>
                   <div class="form-actions">
                     <button type="button" class="btn" data-cancel>取消</button>
@@ -1506,8 +1548,9 @@
                 <label class="btn block">匯入備份<input type="file" id="importFile" accept="application/json,.json" hidden></label>
                 <h4>關於提醒</h4>
                 <p class="meta">天數只是參考，澆水前還是用竹籤確認土壤。</p>
-                <p class="meta">開啟自動調整的植物，會用最近 ${AUTO_MIN_GAPS + 1} 次間隔的中位數當提醒天數，紀錄不夠時先用你設定的天數。</p>
-                <p class="meta">記「檢查土壤」不會重算澆水天數；但如果已經超過天數，當天檢查過就會暫停提醒到隔天。</p>
+                <p class="meta">開啟自動調整的植物，會用最近 ${AUTO_MIN_GAPS} 次間隔的中位數當提醒天數，紀錄不夠時先用你設定的天數。</p>
+                <p class="meta">顏色：藍色是今天已經澆過；綠色還不用管；黃色是到天數了，去戳竹籤看看；紅色是過了該看的日子又拖了半個間隔，都沒澆也沒檢查。</p>
+                <p class="meta">戳了土還濕就按「檢查」，會延後間隔的三分之一再提醒（至少 1 天，例如 5 天的植物延 2 天）。之後真的澆水，實際間隔會算進自動天數。</p>
                 <p class="meta">目前共 ${S.plants.length} 項植物、${S.logs.length} 筆紀錄。</p>
               `);
         }
